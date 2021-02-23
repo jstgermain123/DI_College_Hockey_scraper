@@ -4,6 +4,7 @@ library(rvest)
 library(dplyr)
 library(sjmisc)
 
+## DOES NOT WORK IN CURRENT VERSION FOR 20202021 SEASON
 ##-----------------------------------------------------------------------##
 ##                           Prep Work                                   ##
 ##-----------------------------------------------------------------------##
@@ -44,8 +45,7 @@ team_names_off <- c("Air Force","Alabama-Huntsville","Alaska-Anchorage","Alaska"
 
 # Create team table with team number and team
 team_table<- data.frame(team_names_off,team_numbers)
-team_table <- team_table[-56,]
-team_table <- team_table[-62,]
+team_table <- team_table[-c(56,62),] # remove Long Island and Wayne State Entries
 
 # Rename columns
 colnames(team_table) <- c("Team", "Team#")
@@ -185,7 +185,6 @@ for (k in list.of.urls) {
   team_record<- rbind (record.table,team_record)
 
 }
-
 
 
 ##-----------------------------------------------------------------------##
