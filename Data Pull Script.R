@@ -41,7 +41,7 @@ team_names_off <- c("Air Force","Alabama-Huntsville","Alaska-Anchorage","Alaska"
                  "North Dakota","Northeastern","Northern Michigan","Notre Dame","Ohio State",
                  "Princeton","Providence","Quinnipiac","Rensselaer","RIT","Robert Morris",
                  "Sacred Heart","St. Cloud State","St. Lawrence","Union","Vermont","Wayne State",
-                 "Western Michigan","Wisconsin","Yale","Penn State","Arizona State","Long-Island")
+                 "Western Michigan","Wisconsin","Yale","Penn State","Arizona State","Long Island")
 
 # Create team table with team number and team
 team_table<- data.frame(team_names_off,team_numbers)
@@ -63,7 +63,6 @@ colnames(team_table) <- c("Team", "Team#")
 # IMPORTANT
 # Specify year(s) of team data you would like to pull
 td_years <- c("20192020","20182019","20172018","20162017","20152016","20142015")
-
 
 #----------------------------------------------------------------------------
 list.of.team.urls <- list() # create list where URL's for team stats will be stored
