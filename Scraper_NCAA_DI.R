@@ -4,17 +4,15 @@ library(rvest)
 library(dplyr)
 library(sjmisc)
 
-
-
-master_std_stats <- NCAA_Team_Data_scrape("")
-
 ##-----------------------------------------------------------------------##
 ##                           URL SOURCE                                  ##
 ##-----------------------------------------------------------------------##
 # https://www.collegehockeynews.com/stats/ retrieves current season stats
-# https://www.collegehockeynews.com/stats/?season=20142015 retrieves 20142015 season stats
+# https://www.collegehockeynews.com/stats/?season=20142015 retrieves 
+# 20142015 season stats
 # season stat data available from 20202021 season to 20082009 season
-# Be aware that column names represent what is specified on College Hockey News Website
+# Be aware that column names represent what is specified on College Hockey 
+# News Website
 #--------------------------------------------------------------------------
 
 
@@ -214,7 +212,7 @@ NCAA_Team_Data_scrape <- function(year){
   ##-----------------------------------------------------------------------##
   # https://www.collegehockeynews.com/reports/teamHistory/Air-Force/1
   
-  team_names <- if(year == "20202021" ){
+  if(year == "20202021" ){
     team_names <- team_names_20202021
     team_table <- team_table_20202021
   } else if ((year == "20152016") | (year == "20162017") | (year == "20172018") | (year == "20182019") | (year == "20192020") ){
@@ -235,8 +233,8 @@ NCAA_Team_Data_scrape <- function(year){
   j <- 0
   for (z in team_names) {
     j <- j + 1
-    recordpage <- paste0("https://www.collegehockeynews.com/reports/teamHistory/",team_names$Team[j],"/", team_table$`Team#`[j])
-    pull.name <- paste0(i)
+    recordpage <- paste0("https://www.collegehockeynews.com/reports/teamHistory/",z,"/", team_table$`Team#`[j])
+    pull.name <- paste0(z)
     list.of.urls[[pull.name]] <- recordpage
   }
   
@@ -286,7 +284,115 @@ NCAA_Team_Data_scrape <- function(year){
   
   # convert columns to correct data type
   master_std_ts_WLT[ ,c(24:26)] <- apply(master_std_ts_WLT[ ,c(24:26)], 2,function(x) as.numeric(as.character(x)))
-  
-  
-  return(master_std_ts)
+  return(master_std_ts_WLT)
 }
+NCAA_Player_Data_Scrape <- function(year){
+  ##-----------------------------------------------------------------------##
+  ##                     SCRAPE PLAYER DATA                                ##
+  ##-----------------------------------------------------------------------##
+  
+  if(year == "20202021" ){
+    team_names <- team_names_20202021
+    team_table <- team_table_20202021
+  } else if ((year == "20152016") | (year == "20162017") | (year == "20172018") | (year == "20182019") | (year == "20192020") ){
+    team_names <- team_names_20152020
+    team_table <- team_table_20152020
+  }else if ((year == "20142015") | (year == "20132014") | (year == "20122013") |
+            (year == "20112012") | (year == "20102011")| (year == "20092010") | (year == "20082009") ){
+    team_names <- team_names_20082015
+    team_table <- team_table_20082015
+  } else {
+    team_names <- team_names_20052008
+    team_table <- team_table_20052008
+  }
+  
+  # Set Season list
+  season_yr <- year
+  
+  # Create For Loop to create list of all URL's that will be fed into the export for-loop
+  list.of.urls <- list()
+  j <- 0
+  for (z in team_names) {
+    j <- j + 1 #increment team number by one every loop 
+    statpage <- paste0("https://www.collegehockeynews.com/stats/team/",z,"/", team_table$`Team#`[j])
+    pull.name <- paste0(z)
+    list.of.urls[[pull.name]] <- statpage
+  }
+  
+  # Scrape Skater and Goalie stats for all teams in a given Season
+  m <- 0 #set team number to zero 
+  player_data <- data.frame() # create data frame for scraped player data
+  goalie_data <- data.frame()
+  for (k in list.of.urls) {
+    m <- m + 1 #increment team number by one every loop 
+    statpage <- paste0(k) # set URL from list 
+    page <- read_html(statpage) # read HTML in from URL selected 
+    
+    #Scrape Data
+    tbls <- html_nodes(page, "table")
+    tbls_table <- html_table(tbls)
+    skater_table <- as.data.frame(tbls_table[1])
+    goalie_table <- as.data.frame(tbls_table[2])
+    
+    #table cleanup - delete header row
+    skater_table = skater_table[-1, ] 
+    goalie_table = goalie_table[-1, ] 
+    
+    #Goalie table cleanup - add column names & delete total row and column heading rows
+    colnames(goalie_table) = goalie_table[1, ] # the first row will be the header
+    goalie_table = goalie_table[-1, ] # delete row that was only column names
+    goalie_table <- goalie_table[-nrow(goalie_table),]
+    goalie_table[ ,c(2:11)] <- apply(goalie_table[ ,c(2:11)], 2,function(x) as.numeric(as.character(x)))
+    
+    # Add season and Team Columns
+    goalie_table['Team#'] = team_table$`Team#`[m]  # m represents team position in alphabetical list
+    goalie_table['Season'] = season_yr #season data is being pulled for
+    goalie_table$SA = goalie_table$GA + goalie_table$SV
+    goalie_data <- rbind(goalie_table,goalie_data)
+    
+    #Skater Table cleanup - add column names & delete total row and column heading rows
+    colnames(skater_table) = skater_table[1, ] # the first row will be the header
+    skater_table = skater_table[-1, ] # delete row that was only column names
+    skater_table <- skater_table[-nrow(skater_table),]
+    
+    # Add season and Team Columns
+    skater_table['Team#'] = team_table$`Team#`[m] # m represents team position in alphabetical list
+    skater_table['Season'] = season_yr #season data is being pulled for 
+    
+    # Append table to Master Data frame
+    player_data <- rbind(skater_table,player_data)
+  }
+  
+  # Change column values to be correct data type
+  player_data[ ,c(2:14)] <- apply(player_data[ ,c(2:14)], 2,function(x) as.numeric(as.character(x)))
+  
+  # Create Player Position Column
+  player_data['Position'] = stringr::str_extract(player_data$`Name, Yr`, '(?<=,)[^,]+(?=,)')
+  # Remove Leading space 
+  player_data$Position<-trimws(player_data$Position, "l")
+  
+  # clean non standard position entries
+  number_player_rows <- NROW(player_data)
+  list_1 <- c(1:number_player_rows)
+  entry_list <- list()
+  
+  for (i in list_1 ){
+    if(player_data$Position[i] == "RW"){
+      player_data$Position[i] <- "F"
+    }
+    if(player_data$Position[i] == "LW"){
+      player_data$Position[i] <- "F"
+    }
+    if(str_contains(player_data$Position[i],"C")){
+      player_data$Position[i] <- "F"
+    }
+    if(str_contains(player_data$Position[i],"D")){
+      player_data$Position[i] <- "D"
+    }
+    if(str_contains(player_data$Position[i],"F")){
+      player_data$Position[i] <- "F"
+    }
+  }
+  return(player_data)
+}
+  
