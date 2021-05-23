@@ -119,7 +119,7 @@ colnames(team_table_20052008) <- c("Team", "Team#")
 ##-----------------------------------------------------------------------##
 
 # Year format xxxxyyyy (example 20202021)
-NCAA_Team_Data_scrape <- function(year){
+NCAA_TD_scrape <- function(year){
   ##-----------------------------------------------------------------------##
   ##                       SCRAPE TEAM DATA                                ##
   ##-----------------------------------------------------------------------##
@@ -286,7 +286,7 @@ NCAA_Team_Data_scrape <- function(year){
   master_std_ts_WLT[ ,c(24:26)] <- apply(master_std_ts_WLT[ ,c(24:26)], 2,function(x) as.numeric(as.character(x)))
   return(master_std_ts_WLT)
 }
-NCAA_Player_Data_Scrape <- function(year){
+NCAA_PD_scrape <- function(year){
   ##-----------------------------------------------------------------------##
   ##                     SCRAPE PLAYER DATA                                ##
   ##-----------------------------------------------------------------------##
