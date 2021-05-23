@@ -14,6 +14,7 @@ The NCAA_PD_scrape function is used to scrape player data for specific season of
 ## Input Definitions
 ### Season:
 • A string representing a full season - example: "20182019""
-Example use:
 
-NCCA_TD_scrape("20282019") 
+### Example use:
+
+NCAA_TD_scrape("20282019") 
