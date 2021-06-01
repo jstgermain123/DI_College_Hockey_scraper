@@ -3,6 +3,7 @@ install.packages("sjmisc")
 library(rvest)
 library(dplyr)
 library(sjmisc)
+library(tidyverse)
 
 ##-----------------------------------------------------------------------##
 ##                           URL SOURCE                                  ##
@@ -284,7 +285,9 @@ NCAA_TD_scrape <- function(year){
   
   # convert columns to correct data type
   master_std_ts_WLT[ ,c(24:26)] <- apply(master_std_ts_WLT[ ,c(24:26)], 2,function(x) as.numeric(as.character(x)))
-  return(master_std_ts_WLT)
+  
+  td_list <- list(master_std_ts_WLT,master_adv_ts,master_add_ts)
+  return(td_list)
 }
 NCAA_PD_scrape <- function(year){
   ##-----------------------------------------------------------------------##
@@ -395,4 +398,206 @@ NCAA_PD_scrape <- function(year){
   }
   return(player_data)
 }
+NCAA_AS_Calculations <- function(year){
   
+  ##Year Selection
+  if(year == "20202021" ){
+    team_names <- team_names_20202021
+    team_table <- team_table_20202021
+  } else if ((year == "20152016") | (year == "20162017") | (year == "20172018") | (year == "20182019") | (year == "20192020") ){
+    team_names <- team_names_20152020
+    team_table <- team_table_20152020
+  }else if ((year == "20142015") | (year == "20132014") | (year == "20122013") |
+            (year == "20112012") | (year == "20102011")| (year == "20092010") | (year == "20082009") ){
+    team_names <- team_names_20082015
+    team_table <- team_table_20082015
+  } else {
+    team_names <- team_names_20052008
+    team_table <- team_table_20052008
+  }
+ 
+  
+  attach(master_std_ts_WLT)
+  os <- (7/12) 
+  league_avg_goals <- mean(G) # Average goals per team over the time frame of data scraped
+  league_avg_goals_pg <- mean(G/GP) # Average League Goals per game
+  master_std_ts_WLT['MGF'] <- G - (os * (GP * league_avg_goals_pg)) # Marginal Goals For
+  master_std_ts_WLT['MGA'] <- ((1+os) * GP * league_avg_goals_pg) - GA  # Marginal Goals Against
+  master_std_ts_WLT['LP'] <- W + (T/2) # League Points
+  master_std_ts_WLT['LPPG'] <- master_std_ts_WLT$LP/G #League Points Per Goal Scored
+  master_std_ts_WLT['EXP'] <- master_std_ts_WLT$LPPG * (master_std_ts_WLT$MGF + master_std_ts_WLT$MGA) # Expected Points
+  mae <- sum(abs(master_std_ts_WLT$EXP - master_std_ts_WLT$LPPG)/nrow(master_std_ts_WLT)) # mean absolute error for entire dataset
+  mae_p34 <- mae/34 #mean absolute error per 34 game season
+  detach(master_std_ts_WLT)
+  
+  ##----------------------------------------------------------------------------------------------##
+  ## Offensive Point Shares ##
+  ##----------------------------------------------------------------------------------------------##
+  # Create Filtered Data sets for the season wanted
+  master_std_ts_WLT_filter<- filter(master_std_ts_WLT, Season.x == year)
+  master_std_ts_WLT_filter <- master_std_ts_WLT_filter[,-33]
+  names(master_std_ts_WLT_filter)[21] <- "Team#"
+  mgpp <- sum(master_std_ts_WLT_filter$G)/sum(master_std_ts_WLT_filter$LP) # Marginal goals per point across the season
+  #Calculate Team Assists
+  team_assists <- list()
+  j <- 0
+  for (i in team_names) {
+    j <- j + 1
+    tn <- filter(player_data, player_data$`Team#` ==  team_table$`Team#`[j])
+    ta <- sum(tn$A)
+    pull.name <- paste0(i)
+    team_assists[[pull.name]]<-ta
+  }
+  team_assists_df <-as.data.frame(do.call(rbind, team_assists))
+  team_assists_df['Team#'] <- team_table$`Team#`
+  names(team_assists_df)[1]<- "TA"
+  player_data <- merge.data.frame(player_data,master_std_ts_WLT_filter[c(5,21)],by = "Team#")
+  player_data <- merge.data.frame(player_data,team_assists_df,by = "Team#")
+  names(player_data)[17] <- "TG"
+  names(player_data)[4] <- "G"
+  # Potentially Add shots as an added offensive contribution? 
+  player_data['GC'] <- (player_data$G + (.5*player_data$A))*(player_data$TG/(player_data$TG + (.5*player_data$TA)))  #Goals created = 1 for goal or .5 for Assist
+  
+  
+  #Offensive Players
+  player_data_f <- data.frame(filter(player_data, player_data$Position == 'F')) # Filter by only forwards
+  fgc <- sum((player_data_f$G + (.5*player_data_f$A))*(player_data_f$TG/(player_data_f$TG + (.5*player_data_f$TA)))) # Total goals created by forwards
+  fgp <- sum(player_data_f$GP) # Total games played by forwards
+  player_data_f['MGC'] <- player_data_f$GC - os*player_data_f$GP *(fgc/fgp) # Marginal Goals created
+  player_data_f['OPS'] <- player_data_f$MGC/mgpp #Offensive Point Share
+  
+  #Defensive Players
+  player_data_d <- data.frame(filter(player_data, player_data$Position == 'D'))
+  dgc <- sum((player_data_d$G + (.5*player_data_d$A))*(player_data_d$TG/(player_data_d$TG + (.5*player_data_d$TA)))) # Goals created by defenders
+  dgp <- sum(player_data_d$GP) # Total games played by Defenders 
+  player_data_d['MGC'] <- player_data_d$GC - os*player_data_d$GP *(dgc/dgp) # Marginal goals created 
+  player_data_d['OPS'] <- player_data_d$MGC/mgpp #Offensive Point Share
+  
+  
+  ##----------------------------------------------------------------------------------------------##
+  ## Defensive Point Shares ##
+  ##----------------------------------------------------------------------------------------------##
+  
+  #Filter advanced stats
+  master_adv_ts_filter <- filter(master_adv_ts, master_add_ts$Season == year )
+  
+  # Create list of total team games played by team defenders and forwards
+  # Also create plus minus by player gorup (F or D) for a given team
+  team_games_played_d <- list()
+  team_games_played_f <- list()
+  team_f_pm <- list()
+  team_d_pm <- list()
+  for (i in 1:62) {
+    #Forwards
+    tn <- filter(player_data_f, player_data_f$Team. == paste0(i))
+    total_f_gp <- sum(tn$GP)
+    total_f_pm <- mean(tn$X...)
+    pull.name <- paste0(i)
+    team_games_played_f[[pull.name]] <- total_f_gp
+    team_f_pm[[pull.name]] <- total_f_pm
+    #Defenders
+    tn1 <- filter(player_data_d, player_data_d$Team. == paste0(i))
+    total_d_gp <- sum(tn1$GP)
+    total_d_pm <- mean(tn1$X...)
+    pull.name <- paste0(i)
+    team_games_played_d[[pull.name]] <- total_d_gp
+    team_d_pm[[pull.name]] <- total_d_pm
+  }
+  # Create DF for team games played and PM by team for defenders
+  team_games_played_d_df <- as.data.frame(do.call(rbind, team_games_played_d))
+  team_games_played_d_df['Team.'] <- team_numbers #create column that has team numbers
+  team_games_played_d_df['Position'] <- "D" # create column that specifies position
+  names(team_games_played_d_df)[1] <- "TGPD" # rename column 1 TGPD which means total games played defense
+  team_d_pm_df <-as.data.frame(do.call(rbind, team_d_pm)) # create d plus minus DF
+  team_d_pm_df['Team.'] <- team_numbers #create column that has team numbers
+  names(team_d_pm_df)[1] <- "TPMD"
+  team_games_played_d_df <- merge(team_games_played_d_df,team_d_pm_df, by = "Team.") # merge dataframes
+  team_games_played_d_df <- na.omit(team_games_played_d_df)
+  # Add Shots
+  team_games_played_d_df['Team_Shots'] <- master_std_ts_WLT_filter$Sh
+  # Create DF for team games played by team for forwards
+  team_games_played_f_df <- as.data.frame(do.call(rbind, team_games_played_f))
+  team_games_played_f_df['Team.'] <- team_numbers
+  team_games_played_f_df['Position'] <- "F"
+  names(team_games_played_f_df)[1] <- "TGPF"
+  team_f_pm_df <-as.data.frame(do.call(rbind, team_f_pm)) # create d plus minus DF
+  team_f_pm_df['Team.'] <- team_numbers #create column that has team numbers
+  names(team_f_pm_df)[1] <- "TPMF"
+  team_games_played_f_df <- merge(team_games_played_f_df,team_f_pm_df, by = "Team.") # merge dataframes
+  team_games_played_f_df <- na.omit(team_games_played_f_df)
+  team_games_played_f_df['TGPD'] <- team_games_played_d_df$TGPD
+  team_games_played_d_df['TGPF'] <- team_games_played_f_df$TGPF
+  
+  # create team shot/goals DF
+  team_shots <- data.frame(master_std_ts_WLT_filter$Sh,master_std_ts_WLT_filter$ShA,
+                           master_std_ts_WLT_filter$`Team#`,master_std_ts_WLT_filter$GA,
+                           master_std_ts_WLT_filter$GP)
+  names(team_shots)[3] <- "Team#" # team number
+  names(team_shots)[1] <- "TSF" # team shots for on net
+  names(team_shots)[2] <- "TSA" # team shots against on net
+  names(team_shots)[4] <- "TGA" # team goals against
+  names(team_shots)[5] <- "TGP" # team games played
+  
+  master_adv_ts_filter_merge <- master_adv_ts_filter[,c(4,5,30)]
+  names(master_adv_ts_filter_merge)[3] <- "Team#"
+  team_shots <- merge.data.frame(team_shots,master_adv_ts_filter_merge,by = "Team#")
+  names(team_shots)[1] <- "Team." # team games played
+  
+  # Add team games played and team shots for and against to player data
+  # Forwards
+  player_data_f <- merge.data.frame(player_data_f, team_games_played_f_df,by ="Team.") # team games played
+  player_data_f <- merge.data.frame(player_data_f, team_shots,by ="Team.")# add team shots
+  names(player_data_f)[14] <- "PM"
+  player_data_f['C'] <- player_data_f$SAT - player_data_f$SATA
+  
+  # Defenders
+  player_data_d <- merge.data.frame(player_data_d, team_games_played_d_df,by ="Team.") # team games played
+  player_data_d <- merge.data.frame(player_data_d, team_shots,by ="Team.") # add team shots
+  player_data_d['C'] <- player_data_d$SAT - player_data_d$SATA # Team Corsi
+  player_data_d['C60'] <- (player_data_d$SAT - player_data_d$SATA)/(60*player_data_d$GP) # Team corsi per 60
+  names(player_data_d)[14] <- "PM"
+  
+  # Calculations #
+  LSAPM <- (sum(master_std_ts_WLT_filter$ShA)/sum(master_std_ts_WLT_filter$GP))/60 # League Shots against per minute
+  LGPG <- sum(master_std_ts_WLT_filter$G)/sum(master_std_ts_WLT_filter$GP) # league goals per game
+  PAF <- 5/7 # Point adjustment Forwards
+  PAD <- 10/7 # Point adjustment Defenders
+  
+  
+  #Offensive Players
+  
+  attach(player_data_f)
+  player_data_f['PWTGP'] <- GP/(TGPF + 2 * TGPD) # Proportion of weighted team games for each forward skater
+  player_data_f['PTMGA'] <- (7-2 *(((TSA/GP)/60)/LSAPM))/7 # Proportion of team marginal goals against that will be assigned to skaters
+  player_data_f['TMGA'] <- (1 + (7 / 12)) * TGP * LGPG - TGA
+  player_data_f['PMA'] <- (1/7)* PAF * (PM - GP * (TPMF/TGPF))
+  player_data_f['SMGA'] <- player_data_f$PWTGP * player_data_f$PTMGA * PAD * player_data_f$TMGA + player_data_f$PMA
+  player_data_f['DPS'] <- player_data_f$SMGA/mgpp
+  player_data_f['PS'] <- player_data_f$OPS + player_data_f$DPS
+  detach(player_data_f)
+  
+  #Defensive Players
+  attach(player_data_d)
+  player_data_d['PWTGP'] <- (2*GP)/(TGPF + 2 * TGPD) # Proportion of weighted team games for each defender skater
+  player_data_d['PTMGA'] <- (7-2 *(((TSA/GP)/60)/LSAPM))/7 # Proportion of team marginal goals against that will be assigned to skaters
+  player_data_d['TMGA'] <-  (1 + (7 / 12)) * TGP * LGPG - TGA
+  player_data_d['PMA'] <- (1/7)* PAD * ((PM-GP) * (TPMD/TGPD))
+  player_data_d['SMGA'] <- player_data_d$PWTGP *  player_data_d$PTMGA * PAD *  player_data_d$TMGA +  player_data_d$PMA
+  player_data_d['DPS'] <- player_data_d$SMGA/mgpp
+  player_data_d['PS'] <- player_data_d$OPS + player_data_d$DPS
+  detach(player_data_d)
+  adv_player_data <- list(player_data_d,player_data_f)
+  return(adv_player_data)
+}
+  
+
+
+##-----------------------------------------------------------------------##
+##                   Example Code Full Scrape 2020                       ##
+##-----------------------------------------------------------------------##
+team_data <- NCAA_TD_scrape("20202021")
+player_data <- NCAA_PD_scrape("20202021")
+master_std_ts_WLT <- as.data.frame(team_data[1])
+master_adv_ts <- as.data.frame(team_data[2])
+master_add_ts <- as.data.frame(team_data[3])
+advanced_stat <- NCAA_AS_Calculations("20202021")
